@@ -1,0 +1,227 @@
+// TubeGenius AI - Database Schema
+// Prisma Schema for PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// User Management
+// ============================================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  projects Project[]
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+// ============================================================
+// Project Management
+// ============================================================
+
+model Project {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  name             String
+  description      String?
+  niche            Niche
+  defaultConfig    Json     @default("{}") @map("default_config")
+
+  // YouTube OAuth credentials
+  youtubeChannelId    String?  @map("youtube_channel_id")
+  youtubeAccessToken  String?  @map("youtube_access_token")
+  youtubeRefreshToken String?  @map("youtube_refresh_token")
+  youtubeTokenExpiry  DateTime? @map("youtube_token_expiry")
+  youtubeChannelName  String?  @map("youtube_channel_name")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dataSources DataSource[]
+  contents    Content[]
+  automation  ProjectAutomation?
+  deletedAt   DateTime?           @map("deleted_at")
+
+  @@map("projects")
+}
+
+// ============================================================
+// Project Automation Settings
+// ============================================================
+
+model ProjectAutomation {
+  id              String   @id @default(uuid())
+  projectId       String   @unique @map("project_id")
+
+  isEnabled       Boolean  @default(false) @map("is_enabled")
+
+  // Schedule settings
+  generateTime    String   @default("09:00") @map("generate_time")
+  publishTime     String   @default("12:00") @map("publish_time")
+  timezone        String   @default("Asia/Seoul")
+
+  // Content settings
+  dailyLimit      Int      @default(1) @map("daily_limit")
+  autoPublish     Boolean  @default(false) @map("auto_publish")
+
+  // Trend settings
+  useTrends       Boolean  @default(true) @map("use_trends")
+  trendSources    String[] @default(["google", "naver", "rss"]) @map("trend_sources")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_automations")
+}
+
+enum Niche {
+  FINANCE          @map("Finance & Investing")
+  SENIOR_HEALTH    @map("Senior Health")
+  TECH_AI          @map("Tech & AI Reviews")
+  HISTORY          @map("History & Storytelling")
+  COMMERCE         @map("Product Reviews")
+}
+
+// ============================================================
+// Data Sources
+// ============================================================
+
+model DataSource {
+  id            String         @id @default(uuid())
+  projectId     String         @map("project_id")
+  type          DataSourceType
+  name          String
+  url           String?
+  config        Json?          @default("{}")
+  isActive      Boolean        @default(true) @map("is_active")
+  lastFetchedAt DateTime?      @map("last_fetched_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("data_sources")
+}
+
+enum DataSourceType {
+  RSS
+  API
+  GOOGLE_TRENDS
+  NAVER_DATALAB
+  CUSTOM
+}
+
+// ============================================================
+// Content Generation
+// ============================================================
+
+model Content {
+  id             String        @id @default(uuid())
+  projectId      String        @map("project_id")
+  status         ContentStatus @default(PENDING)
+  config         Json          @default("{}")
+
+  // Generated content
+  title          String?
+  script         String?
+  voiceoverText  String?       @map("voiceover_text")
+  imagePrompts   String[]      @map("image_prompts")
+  criticalClaims Json?         @map("critical_claims")
+  metadata       Json?
+  safetyReport   Json?         @map("safety_report")
+
+  // Media assets
+  audioUrl       String?       @map("audio_url")
+  videoUrl       String?       @map("video_url")
+  thumbnailUrl   String?       @map("thumbnail_url")
+
+  // YouTube integration
+  youtubeVideoId String?       @map("youtube_video_id")
+  publishedAt    DateTime?     @map("published_at")
+  scheduledAt    DateTime?     @map("scheduled_at")
+
+  // Error handling
+  error          String?
+  retryCount     Int           @default(0) @map("retry_count")
+
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+  @@index([status, createdAt])
+  @@map("contents")
+}
+
+enum ContentStatus {
+  PENDING           @map("pending")
+  SCRIPT_GENERATING @map("script_generating")
+  TTS_PROCESSING    @map("tts_processing")
+  VIDEO_RENDERING   @map("video_rendering")
+  UPLOADING         @map("uploading")
+  SCHEDULED         @map("scheduled")
+  COMPLETED         @map("completed")
+  FAILED            @map("failed")
+}
+
+// ============================================================
+// Analytics (Future)
+// ============================================================
+
+model ContentAnalytics {
+  id           String   @id @default(uuid())
+  contentId    String   @unique @map("content_id")
+  views        Int      @default(0)
+  likes        Int      @default(0)
+  comments     Int      @default(0)
+  shares       Int      @default(0)
+  watchTime    Int      @default(0) @map("watch_time")
+  ctr          Float    @default(0)
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("content_analytics")
+}
+
+// ============================================================
+// Audit Log
+// ============================================================
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

@@ -1,0 +1,30 @@
+{
+  "name": "tubegenius-ai",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "dev:web": "turbo run dev --filter=@tubegenius/web",
+    "dev:api": "turbo run dev --filter=@tubegenius/api",
+    "db:generate": "turbo run db:generate --filter=@tubegenius/api",
+    "db:push": "turbo run db:push --filter=@tubegenius/api",
+    "db:studio": "turbo run db:studio --filter=@tubegenius/api"
+  },
+  "devDependencies": {
+    "tailwindcss-animate": "^1.0.7",
+    "turbo": "^2.3.0",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "npm@10.8.0"
+}

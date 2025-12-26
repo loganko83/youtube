@@ -1,0 +1,41 @@
+{
+  "extends": "@tubegenius/config/typescript",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "module": "esnext",
+    "noEmit": true,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@tubegenius/shared": [
+        "../../packages/shared/src"
+      ],
+      "@tubegenius/ui": [
+        "../../packages/ui/src"
+      ]
+    },
+    "baseUrl": ".",
+    "allowJs": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

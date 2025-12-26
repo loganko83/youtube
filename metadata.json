@@ -1,0 +1,9 @@
+
+{
+  "name": "TubeGenius AI: YouTube Automation Engine",
+  "description": "A high-performance web platform for automated YouTube content generation. Inspired by the 2025 Automation Infrastructure Strategy, it leverages Gemini for intelligent scriptwriting, safety-first fact-checking, and multi-niche content orchestration.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

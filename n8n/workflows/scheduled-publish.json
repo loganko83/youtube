@@ -1,0 +1,577 @@
+{
+  "name": "TubeGenius - Scheduled YouTube Publishing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Schedule Trigger - Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/api/content/scheduled",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "scheduled"
+            },
+            {
+              "name": "publishBefore",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-scheduled-content",
+      "name": "Fetch Scheduled Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.data?.length || 0 }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "check-has-content",
+      "name": "Check Has Content",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "split-content-array",
+      "name": "Split Content Array",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $input.item.json;\n\nreturn {\n  json: {\n    contentId: content.id,\n    projectId: content.projectId,\n    userId: content.userId,\n    title: content.title,\n    description: content.description,\n    videoUrl: content.videoUrl,\n    tags: content.tags || [],\n    categoryId: content.categoryId || '22',\n    privacyStatus: content.privacyStatus || 'public',\n    scheduledPublishAt: content.scheduledPublishAt,\n    callbackUrl: `${$env.API_BASE_URL}/api/webhooks/publish-status`\n  }\n};"
+      },
+      "id": "prepare-publish-data",
+      "name": "Prepare Publish Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contentId",
+              "value": "={{ $json.contentId }}"
+            },
+            {
+              "name": "status",
+              "value": "publishing"
+            },
+            {
+              "name": "stage",
+              "value": "downloading_video"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-start",
+      "name": "Status Update - Start Publishing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Prepare Publish Data').item.json.videoUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-video",
+      "name": "Download Video File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1570, 200],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.error }}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-download-success",
+      "name": "Check Download Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1790, 200]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('Prepare Publish Data').item.json.title }}",
+        "categoryId": "={{ $('Prepare Publish Data').item.json.categoryId }}",
+        "description": "={{ $('Prepare Publish Data').item.json.description }}",
+        "privacyStatus": "={{ $('Prepare Publish Data').item.json.privacyStatus }}",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "options": {
+          "tags": "={{ $('Prepare Publish Data').item.json.tags }}",
+          "publishAt": "={{ $('Prepare Publish Data').item.json.scheduledPublishAt }}"
+        }
+      },
+      "id": "youtube-upload",
+      "name": "YouTube - Upload Video",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [2010, 100],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube_oauth",
+          "name": "YouTube OAuth2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.error }}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-upload-success",
+      "name": "Check Upload Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2230, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Prepare Publish Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contentId",
+              "value": "={{ $('Prepare Publish Data').item.json.contentId }}"
+            },
+            {
+              "name": "status",
+              "value": "published"
+            },
+            {
+              "name": "stage",
+              "value": "completed"
+            },
+            {
+              "name": "youtubeVideoId",
+              "value": "={{ $('YouTube - Upload Video').item.json.id }}"
+            },
+            {
+              "name": "youtubeUrl",
+              "value": "https://youtube.com/watch?v={{ $('YouTube - Upload Video').item.json.id }}"
+            },
+            {
+              "name": "publishedAt",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-success",
+      "name": "Status Update - Published Successfully",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2450, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Prepare Publish Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contentId",
+              "value": "={{ $('Prepare Publish Data').item.json.contentId }}"
+            },
+            {
+              "name": "status",
+              "value": "failed"
+            },
+            {
+              "name": "stage",
+              "value": "youtube_upload"
+            },
+            {
+              "name": "error",
+              "value": "YouTube upload failed"
+            },
+            {
+              "name": "errorDetails",
+              "value": "={{ JSON.stringify($('YouTube - Upload Video').item.json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-upload-failed",
+      "name": "Status Update - Upload Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Prepare Publish Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contentId",
+              "value": "={{ $('Prepare Publish Data').item.json.contentId }}"
+            },
+            {
+              "name": "status",
+              "value": "failed"
+            },
+            {
+              "name": "stage",
+              "value": "download_video"
+            },
+            {
+              "name": "error",
+              "value": "Video download failed"
+            },
+            {
+              "name": "errorDetails",
+              "value": "={{ JSON.stringify($('Download Video File').item.json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-download-failed",
+      "name": "Status Update - Download Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2010, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2670, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allResults = $input.all();\n\nconst summary = {\n  totalProcessed: allResults.length,\n  successful: allResults.filter(r => r.json.status === 'published').length,\n  failed: allResults.filter(r => r.json.status === 'failed').length,\n  results: allResults.map(r => ({\n    contentId: r.json.contentId,\n    status: r.json.status,\n    youtubeUrl: r.json.youtubeUrl || null,\n    error: r.json.error || null\n  }))\n};\n\nreturn {\n  json: summary\n};"
+      },
+      "id": "generate-summary",
+      "name": "Generate Publish Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2890, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/api/webhooks/publish-batch-complete",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "summary",
+              "value": "={{ JSON.stringify($json) }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify-batch-complete",
+      "name": "Notify Batch Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3110, 200]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "options": {}
+      },
+      "id": "no-content-end",
+      "name": "No Content to Publish",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [910, 400]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger - Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Fetch Scheduled Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Scheduled Content": {
+      "main": [
+        [
+          {
+            "node": "Check Has Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Has Content": {
+      "main": [
+        [
+          {
+            "node": "Split Content Array",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Content to Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Content Array": {
+      "main": [
+        [
+          {
+            "node": "Prepare Publish Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Publish Data": {
+      "main": [
+        [
+          {
+            "node": "Status Update - Start Publishing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Start Publishing": {
+      "main": [
+        [
+          {
+            "node": "Download Video File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video File": {
+      "main": [
+        [
+          {
+            "node": "Check Download Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Download Success": {
+      "main": [
+        [
+          {
+            "node": "YouTube - Upload Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Update - Download Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube - Upload Video": {
+      "main": [
+        [
+          {
+            "node": "Check Upload Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Upload Success": {
+      "main": [
+        [
+          {
+            "node": "Status Update - Published Successfully",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Update - Upload Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Published Successfully": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Upload Failed": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Download Failed": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Generate Publish Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Publish Summary": {
+      "main": [
+        [
+          {
+            "node": "Notify Batch Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z",
+      "id": "1",
+      "name": "tubegenius"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

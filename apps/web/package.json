@@ -1,0 +1,38 @@
+{
+  "name": "@tubegenius/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "clean": "rm -rf .next node_modules"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.0",
+    "@tubegenius/shared": "*",
+    "@tubegenius/ui": "*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "next": "^14.2.20",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tanstack/react-query-devtools": "^5.91.1",
+    "@tubegenius/config": "*",
+    "@types/node": "^22.14.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,854 @@
+{
+  "name": "TubeGenius - Content Generation Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "content-job",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger - Content Job",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "content-job-webhook"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "jobId",
+              "value": "={{ $json.jobId }}"
+            },
+            {
+              "name": "projectId",
+              "value": "={{ $json.projectId }}"
+            },
+            {
+              "name": "userId",
+              "value": "={{ $json.userId }}"
+            },
+            {
+              "name": "config",
+              "value": "={{ JSON.stringify($json.config) }}"
+            },
+            {
+              "name": "callbackUrl",
+              "value": "={{ $json.callbackUrl }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-job-data",
+      "name": "Extract Job Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Extract Job Data').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "processing"
+            },
+            {
+              "name": "stage",
+              "value": "script_generation"
+            },
+            {
+              "name": "progress",
+              "value": "10"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-start",
+      "name": "Status Update - Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "geminiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "={{ JSON.stringify([{\n  role: 'user',\n  parts: [{\n    text: `Generate ${JSON.parse($('Extract Job Data').item.json.config).format} video script for:\nNiche: ${JSON.parse($('Extract Job Data').item.json.config).niche}\nTopic: ${JSON.parse($('Extract Job Data').item.json.config).topic}\nTone: ${JSON.parse($('Extract Job Data').item.json.config).tone}\nLanguage: ${JSON.parse($('Extract Job Data').item.json.config).language}\n\nFollow the JSON schema for structured response.`\n  }]\n}]) }}"
+            },
+            {
+              "name": "generationConfig",
+              "value": "={{ JSON.stringify({\n  temperature: 0.7,\n  topK: 40,\n  topP: 0.95,\n  maxOutputTokens: 8192,\n  responseMimeType: 'application/json',\n  responseSchema: {\n    type: 'object',\n    properties: {\n      title: { type: 'string' },\n      script: { type: 'array', items: { type: 'object' } },\n      voiceoverText: { type: 'string' },\n      imagePrompts: { type: 'array', items: { type: 'string' } },\n      criticalClaims: { type: 'array', items: { type: 'object' } },\n      metadata: { type: 'object' },\n      safetyReport: { type: 'object' }\n    },\n    required: ['title', 'script', 'voiceoverText']\n  }\n}) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "gemini-script-generation",
+      "name": "Gemini - Script Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [910, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.error }}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-gemini-success",
+      "name": "Check Gemini Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.item.json;\nconst content = JSON.parse(response.candidates[0].content.parts[0].text);\n\nreturn {\n  json: {\n    jobId: $('Extract Job Data').item.json.jobId,\n    generatedContent: content,\n    safetyRatings: response.candidates[0].safetyRatings || [],\n    finishReason: response.candidates[0].finishReason\n  }\n};"
+      },
+      "id": "parse-gemini-response",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Extract Job Data').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "processing"
+            },
+            {
+              "name": "stage",
+              "value": "safety_check"
+            },
+            {
+              "name": "progress",
+              "value": "30"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify($json.generatedContent) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-script-done",
+      "name": "Status Update - Script Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1570, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $input.item.json.generatedContent;\nconst safetyRatings = $input.item.json.safetyRatings;\n\n// Check safety ratings\nconst hasHighRiskRating = safetyRatings.some(rating => \n  ['HIGH', 'CRITICAL'].includes(rating.probability)\n);\n\n// Check critical claims confidence\nconst hasLowConfidenceClaims = (content.criticalClaims || []).some(\n  claim => claim.confidence < 70\n);\n\n// Safety report analysis\nconst hasSafetyFlags = content.safetyReport?.flags?.length > 0;\n\nreturn {\n  json: {\n    jobId: $input.item.json.jobId,\n    generatedContent: content,\n    safetyCheck: {\n      passed: !hasHighRiskRating && !hasLowConfidenceClaims && !hasSafetyFlags,\n      highRiskRating: hasHighRiskRating,\n      lowConfidenceClaims: hasLowConfidenceClaims,\n      safetyFlags: hasSafetyFlags,\n      details: {\n        safetyRatings,\n        criticalClaims: content.criticalClaims || [],\n        safetyReport: content.safetyReport || {}\n      }\n    }\n  }\n};"
+      },
+      "id": "safety-filter",
+      "name": "Safety Filter Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.safetyCheck.passed }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-safety-passed",
+      "name": "Check Safety Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2010, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "failed"
+            },
+            {
+              "name": "stage",
+              "value": "safety_check"
+            },
+            {
+              "name": "error",
+              "value": "Content failed safety check"
+            },
+            {
+              "name": "safetyDetails",
+              "value": "={{ JSON.stringify($json.safetyCheck.details) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-safety-failed",
+      "name": "Status Update - Safety Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2230, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://api.elevenlabs.io/v1/text-to-speech/{{ $('Extract Job Data').item.json.config.voiceId || 'default_voice_id' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "elevenLabsApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $('Safety Filter Analysis').item.json.generatedContent.voiceoverText }}"
+            },
+            {
+              "name": "model_id",
+              "value": "eleven_multilingual_v2"
+            },
+            {
+              "name": "voice_settings",
+              "value": "={{ JSON.stringify({\n  stability: 0.5,\n  similarity_boost: 0.75,\n  style: 0.5,\n  use_speaker_boost: true\n}) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "elevenlabs-tts",
+      "name": "ElevenLabs - Text to Speech",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2230, 100],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Safety Filter Analysis').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "processing"
+            },
+            {
+              "name": "stage",
+              "value": "video_rendering"
+            },
+            {
+              "name": "progress",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-tts-done",
+      "name": "Status Update - TTS Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2450, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://api.creatomate.com/v1/renders",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "creatomateApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "template_id",
+              "value": "={{ JSON.parse($('Extract Job Data').item.json.config).format === 'shorts' ? 'shorts_template_id' : 'long_form_template_id' }}"
+            },
+            {
+              "name": "modifications",
+              "value": "={{ JSON.stringify({\n  'Title': $('Safety Filter Analysis').item.json.generatedContent.title,\n  'Voiceover-Audio': `data:audio/mpeg;base64,${$('ElevenLabs - Text to Speech').item.binary.data.toString('base64')}`,\n  'Scene-Images': $('Safety Filter Analysis').item.json.generatedContent.imagePrompts\n}) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "creatomate-video-render",
+      "name": "Creatomate - Video Render",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2670, 100],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.error }}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-render-success",
+      "name": "Check Render Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2890, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Safety Filter Analysis').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "processing"
+            },
+            {
+              "name": "stage",
+              "value": "youtube_upload"
+            },
+            {
+              "name": "progress",
+              "value": "80"
+            },
+            {
+              "name": "videoUrl",
+              "value": "={{ $('Creatomate - Video Render').item.json.url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-render-done",
+      "name": "Status Update - Render Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3110, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ JSON.parse($('Extract Job Data').item.json.config).autoPublish }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-auto-publish",
+      "name": "Check Auto Publish",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3330, 0]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('Safety Filter Analysis').item.json.generatedContent.title }}",
+        "categoryId": "22",
+        "description": "={{ $('Safety Filter Analysis').item.json.generatedContent.metadata.description || '' }}",
+        "privacyStatus": "={{ JSON.parse($('Extract Job Data').item.json.config).privacyStatus || 'private' }}",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "options": {
+          "tags": "={{ JSON.parse($('Extract Job Data').item.json.config).tags || [] }}"
+        }
+      },
+      "id": "youtube-upload",
+      "name": "YouTube - Upload Video",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [3550, -100],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube_oauth",
+          "name": "YouTube OAuth2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Safety Filter Analysis').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "stage",
+              "value": "published"
+            },
+            {
+              "name": "progress",
+              "value": "100"
+            },
+            {
+              "name": "videoUrl",
+              "value": "={{ $('Creatomate - Video Render').item.json.url }}"
+            },
+            {
+              "name": "youtubeVideoId",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "youtubeUrl",
+              "value": "https://youtube.com/watch?v={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-published",
+      "name": "Status Update - Published",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3770, -100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Safety Filter Analysis').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "stage",
+              "value": "render_complete"
+            },
+            {
+              "name": "progress",
+              "value": "100"
+            },
+            {
+              "name": "videoUrl",
+              "value": "={{ $('Creatomate - Video Render').item.json.url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-no-publish",
+      "name": "Status Update - Render Complete (No Publish)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3550, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Extract Job Data').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "failed"
+            },
+            {
+              "name": "stage",
+              "value": "={{ $json.stage || 'unknown' }}"
+            },
+            {
+              "name": "error",
+              "value": "={{ $json.error || $json.message || 'Unknown error occurred' }}"
+            },
+            {
+              "name": "errorDetails",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error-handler",
+      "name": "Error Handler - Notify API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1350, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  jobId: $('Extract Job Data').item.json.jobId,\n  message: 'Content generation job started',\n  webhookUrl: $('Extract Job Data').item.json.callbackUrl\n}) }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [690, 500]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extract Job Data').item.json.callbackUrl }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jobId",
+              "value": "={{ $('Safety Filter Analysis').item.json.jobId }}"
+            },
+            {
+              "name": "status",
+              "value": "failed"
+            },
+            {
+              "name": "stage",
+              "value": "video_rendering"
+            },
+            {
+              "name": "error",
+              "value": "Video rendering failed"
+            },
+            {
+              "name": "errorDetails",
+              "value": "={{ JSON.stringify($('Creatomate - Video Render').item.json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "status-update-render-failed",
+      "name": "Status Update - Render Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3110, 200]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger - Content Job": {
+      "main": [
+        [
+          {
+            "node": "Extract Job Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job Data": {
+      "main": [
+        [
+          {
+            "node": "Status Update - Start",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Start": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Script Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Script Generation": {
+      "main": [
+        [
+          {
+            "node": "Check Gemini Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Gemini Success": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Handler - Notify API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Status Update - Script Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Script Done": {
+      "main": [
+        [
+          {
+            "node": "Safety Filter Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safety Filter Analysis": {
+      "main": [
+        [
+          {
+            "node": "Check Safety Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Safety Passed": {
+      "main": [
+        [
+          {
+            "node": "ElevenLabs - Text to Speech",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Update - Safety Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs - Text to Speech": {
+      "main": [
+        [
+          {
+            "node": "Status Update - TTS Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - TTS Done": {
+      "main": [
+        [
+          {
+            "node": "Creatomate - Video Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Creatomate - Video Render": {
+      "main": [
+        [
+          {
+            "node": "Check Render Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Render Success": {
+      "main": [
+        [
+          {
+            "node": "Status Update - Render Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Update - Render Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Update - Render Done": {
+      "main": [
+        [
+          {
+            "node": "Check Auto Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auto Publish": {
+      "main": [
+        [
+          {
+            "node": "YouTube - Upload Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Update - Render Complete (No Publish)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube - Upload Video": {
+      "main": [
+        [
+          {
+            "node": "Status Update - Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z",
+      "id": "1",
+      "name": "tubegenius"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

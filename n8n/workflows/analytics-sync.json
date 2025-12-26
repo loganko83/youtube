@@ -1,0 +1,489 @@
+{
+  "name": "TubeGenius - YouTube Analytics Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Schedule Trigger - Daily 2 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/api/content/published",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "hasYoutubeId",
+              "value": "true"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-published-videos",
+      "name": "Fetch Published Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.data?.length || 0 }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "check-has-videos",
+      "name": "Check Has Videos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "split-videos-array",
+      "name": "Split Videos Array",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const video = $input.item.json;\n\nreturn {\n  json: {\n    contentId: video.id,\n    youtubeVideoId: video.youtubeVideoId,\n    title: video.title,\n    publishedAt: video.publishedAt,\n    lastAnalyticsSync: video.lastAnalyticsSync || null\n  }\n};"
+      },
+      "id": "prepare-video-data",
+      "name": "Prepare Video Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "get",
+        "videoId": "={{ $json.youtubeVideoId }}",
+        "part": "snippet,statistics,contentDetails,status",
+        "options": {}
+      },
+      "id": "youtube-get-video-details",
+      "name": "YouTube - Get Video Details",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [1350, 200],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube_oauth",
+          "name": "YouTube OAuth2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.error }}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-video-exists",
+      "name": "Check Video Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1570, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://youtubeanalytics.googleapis.com/v2/reports",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "channel==MINE"
+            },
+            {
+              "name": "startDate",
+              "value": "={{ $now.minus({ days: 30 }).toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "endDate",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "metrics",
+              "value": "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,likes,comments,shares"
+            },
+            {
+              "name": "dimensions",
+              "value": "day"
+            },
+            {
+              "name": "filters",
+              "value": "video=={{ $('Prepare Video Data').item.json.youtubeVideoId }}"
+            },
+            {
+              "name": "sort",
+              "value": "day"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "youtube-analytics-api",
+      "name": "YouTube Analytics API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1790, 100],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube_oauth",
+          "name": "YouTube OAuth2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const videoDetails = $('YouTube - Get Video Details').item.json.items[0];\nconst analyticsData = $input.item.json;\nconst videoData = $('Prepare Video Data').item.json;\n\n// Parse analytics rows\nconst analyticsRows = analyticsData.rows || [];\nconst totalMetrics = {\n  views: 0,\n  estimatedMinutesWatched: 0,\n  averageViewDuration: 0,\n  averageViewPercentage: 0,\n  subscribersGained: 0,\n  likes: 0,\n  comments: 0,\n  shares: 0\n};\n\nanalyticsRows.forEach(row => {\n  totalMetrics.views += row[1] || 0;\n  totalMetrics.estimatedMinutesWatched += row[2] || 0;\n  totalMetrics.averageViewDuration += row[3] || 0;\n  totalMetrics.averageViewPercentage += row[4] || 0;\n  totalMetrics.subscribersGained += row[5] || 0;\n  totalMetrics.likes += row[6] || 0;\n  totalMetrics.comments += row[7] || 0;\n  totalMetrics.shares += row[8] || 0;\n});\n\n// Average the percentage and duration metrics\nconst daysCount = analyticsRows.length || 1;\ntotalMetrics.averageViewDuration = Math.round(totalMetrics.averageViewDuration / daysCount);\ntotalMetrics.averageViewPercentage = Math.round(totalMetrics.averageViewPercentage / daysCount);\n\n// Combine with video statistics\nconst statistics = videoDetails.statistics || {};\n\nreturn {\n  json: {\n    contentId: videoData.contentId,\n    youtubeVideoId: videoData.youtubeVideoId,\n    analytics: {\n      // Current totals from YouTube API\n      totalViews: parseInt(statistics.viewCount || 0),\n      totalLikes: parseInt(statistics.likeCount || 0),\n      totalComments: parseInt(statistics.commentCount || 0),\n      \n      // Last 30 days from Analytics API\n      last30Days: totalMetrics,\n      \n      // Daily breakdown\n      dailyData: analyticsRows.map(row => ({\n        date: row[0],\n        views: row[1] || 0,\n        watchTimeMinutes: row[2] || 0,\n        avgViewDuration: row[3] || 0,\n        avgViewPercentage: row[4] || 0,\n        subscribersGained: row[5] || 0,\n        likes: row[6] || 0,\n        comments: row[7] || 0,\n        shares: row[8] || 0\n      })),\n      \n      // Video metadata\n      status: videoDetails.status?.privacyStatus || 'unknown',\n      duration: videoDetails.contentDetails?.duration || '',\n      publishedAt: videoDetails.snippet?.publishedAt || videoData.publishedAt,\n      \n      // Engagement metrics\n      engagementRate: statistics.viewCount > 0 \n        ? ((parseInt(statistics.likeCount || 0) + parseInt(statistics.commentCount || 0)) / parseInt(statistics.viewCount)) * 100\n        : 0,\n      \n      // Sync metadata\n      syncedAt: $now.toISO(),\n      syncPeriodDays: 30\n    }\n  }\n};"
+      },
+      "id": "combine-analytics-data",
+      "name": "Combine Analytics Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2010, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/api/webhooks/analytics-update",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contentId",
+              "value": "={{ $json.contentId }}"
+            },
+            {
+              "name": "youtubeVideoId",
+              "value": "={{ $json.youtubeVideoId }}"
+            },
+            {
+              "name": "analytics",
+              "value": "={{ JSON.stringify($json.analytics) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-analytics-api",
+      "name": "Update Analytics via API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2230, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/api/webhooks/analytics-error",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contentId",
+              "value": "={{ $('Prepare Video Data').item.json.contentId }}"
+            },
+            {
+              "name": "youtubeVideoId",
+              "value": "={{ $('Prepare Video Data').item.json.youtubeVideoId }}"
+            },
+            {
+              "name": "error",
+              "value": "Video not found or deleted on YouTube"
+            },
+            {
+              "name": "errorDetails",
+              "value": "={{ JSON.stringify($('YouTube - Get Video Details').item.json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify-video-error",
+      "name": "Notify Video Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge-all-results",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allResults = $input.all();\n\nconst summary = {\n  totalProcessed: allResults.length,\n  successful: allResults.filter(r => !r.json.error).length,\n  failed: allResults.filter(r => r.json.error).length,\n  totalViews: allResults\n    .filter(r => r.json.analytics?.totalViews)\n    .reduce((sum, r) => sum + r.json.analytics.totalViews, 0),\n  totalLikes: allResults\n    .filter(r => r.json.analytics?.totalLikes)\n    .reduce((sum, r) => sum + r.json.analytics.totalLikes, 0),\n  totalComments: allResults\n    .filter(r => r.json.analytics?.totalComments)\n    .reduce((sum, r) => sum + r.json.analytics.totalComments, 0),\n  avgEngagementRate: allResults\n    .filter(r => r.json.analytics?.engagementRate)\n    .reduce((sum, r) => sum + r.json.analytics.engagementRate, 0) / \n    (allResults.filter(r => r.json.analytics?.engagementRate).length || 1),\n  syncedAt: $now.toISO()\n};\n\nreturn {\n  json: summary\n};"
+      },
+      "id": "generate-sync-summary",
+      "name": "Generate Sync Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2670, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/api/webhooks/analytics-batch-complete",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "summary",
+              "value": "={{ JSON.stringify($json) }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify-batch-complete",
+      "name": "Notify Batch Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2890, 200]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "options": {}
+      },
+      "id": "no-videos-end",
+      "name": "No Videos to Sync",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [910, 400]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger - Daily 2 AM": {
+      "main": [
+        [
+          {
+            "node": "Fetch Published Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Published Videos": {
+      "main": [
+        [
+          {
+            "node": "Check Has Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Has Videos": {
+      "main": [
+        [
+          {
+            "node": "Split Videos Array",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Videos to Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Videos Array": {
+      "main": [
+        [
+          {
+            "node": "Prepare Video Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Video Data": {
+      "main": [
+        [
+          {
+            "node": "YouTube - Get Video Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube - Get Video Details": {
+      "main": [
+        [
+          {
+            "node": "Check Video Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Video Exists": {
+      "main": [
+        [
+          {
+            "node": "YouTube Analytics API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Video Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube Analytics API": {
+      "main": [
+        [
+          {
+            "node": "Combine Analytics Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Analytics Data": {
+      "main": [
+        [
+          {
+            "node": "Update Analytics via API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Analytics via API": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Video Error": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Generate Sync Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Sync Summary": {
+      "main": [
+        [
+          {
+            "node": "Notify Batch Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-15T00:00:00.000Z",
+      "updatedAt": "2024-01-15T00:00:00.000Z",
+      "id": "1",
+      "name": "tubegenius"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}
