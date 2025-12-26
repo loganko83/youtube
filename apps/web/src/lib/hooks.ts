@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, User, Project, ContentConfig, CostBreakdown, SuccessRateMetrics, AutomationMetricsData } from './api';
+import { api, Project, ContentConfig } from './api';
 
 // ============================================================
 // Query Keys
