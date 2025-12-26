@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath: '/youtube',
   reactStrictMode: true,
   transpilePackages: ['@tubegenius/ui', '@tubegenius/shared'],
   experimental: {
